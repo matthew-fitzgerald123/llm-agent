@@ -1,5 +1,5 @@
 from __future__ import annotations
-import re, json, uuid
+import re, json, uuid, asyncio
 from dataclasses import dataclass, field
 from mlx_lm import load, generate
 from dotenv import load_dotenv
@@ -171,3 +171,62 @@ def run_agent(query: str, max_steps: int = None) -> RunResult:
         steps=steps,
         success=success,
     )
+
+
+async def run_agent_stream(query: str, max_steps: int = None):
+    """Async generator that yields JSON event strings for SSE."""
+    if max_steps is None:
+        max_steps = int(os.getenv("MAX_STEPS", 6))
+
+    model, tokenizer = get_model()
+    run_id = str(uuid.uuid4())[:8]
+
+    yield json.dumps({"event": "start", "run_id": run_id, "query": query})
+
+    system = SYSTEM_PROMPT.format(tools=tools_prompt())
+    history = f"[INST] {system}\n\nQuestion: {query} [/INST]"
+
+    steps = []
+
+    for step_num in range(max_steps):
+        response = await asyncio.to_thread(
+            generate, model, tokenizer, prompt=history, max_tokens=512, verbose=False
+        )
+
+        step = parse_response(response)
+        steps.append(step)
+
+        if step.thought:
+            yield json.dumps({"event": "thought", "step": step_num, "content": step.thought})
+
+        if step.is_final:
+            yield json.dumps({
+                "event": "final_answer",
+                "run_id": run_id,
+                "content": step.final_answer,
+                "steps_taken": len(steps),
+                "success": True,
+            })
+            return
+
+        if step.tool_name:
+            yield json.dumps({"event": "tool_call", "step": step_num, "tool": step.tool_name, "input": step.tool_input})
+            observation = await asyncio.to_thread(call_tool, step.tool_name, step.tool_input)
+            step.observation = observation
+            yield json.dumps({"event": "observation", "step": step_num, "content": observation})
+            history += f"\n{response}\nObservation: {observation}\n[INST] Continue. [/INST]"
+        else:
+            history += f"\n{response}\n[INST] Please use the format: Thought/Action/Action Input or Thought/Final Answer [/INST]"
+
+    prompt = history + "\n[INST] You have reached the step limit. Give your best Final Answer now based on what you have found. [/INST]"
+    response = await asyncio.to_thread(generate, model, tokenizer, prompt=prompt, max_tokens=256, verbose=False)
+    final_match = re.search(r"Final Answer:\s*(.+?)$", response, re.DOTALL)
+    final_answer = final_match.group(1).strip() if final_match else response.strip()
+
+    yield json.dumps({
+        "event": "final_answer",
+        "run_id": run_id,
+        "content": final_answer,
+        "steps_taken": len(steps),
+        "success": False,
+    })

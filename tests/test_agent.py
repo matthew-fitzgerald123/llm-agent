@@ -113,3 +113,36 @@ def test_agent_runs_list():
     r = client.get("/agent/runs")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+def test_agent_stream_returns_sse():
+    import json as _json
+    with client.stream("POST", "/agent/run/stream", json={
+        "query": "What is 3 * 7?",
+        "max_steps": 4,
+    }) as r:
+        assert r.status_code == 200
+        assert "text/event-stream" in r.headers.get("content-type", "")
+        lines = []
+        for line in r.iter_lines():
+            if line.startswith("data: "):
+                lines.append(line[6:])
+        assert "[DONE]" in lines
+        events = [_json.loads(l) for l in lines if l != "[DONE]"]
+        event_types = [e["event"] for e in events]
+        assert "start" in event_types
+        assert "final_answer" in event_types
+
+
+def test_agent_stream_final_answer_has_run_id():
+    import json as _json
+    with client.stream("POST", "/agent/run/stream", json={
+        "query": "Calculate 50 + 50.",
+        "max_steps": 4,
+    }) as r:
+        lines = [l[6:] for l in r.iter_lines() if l.startswith("data: ") and l[6:] != "[DONE]"]
+        events = [_json.loads(l) for l in lines]
+        final = next((e for e in events if e["event"] == "final_answer"), None)
+        assert final is not None
+        assert "run_id" in final
+        assert "content" in final

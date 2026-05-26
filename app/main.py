@@ -1,5 +1,6 @@
 from __future__ import annotations
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -8,7 +9,7 @@ from dotenv import load_dotenv
 
 from app.database import get_db, engine
 from app.models import Base, AgentRun, ToolCall
-from app.agent import run_agent, get_model
+from app.agent import run_agent, run_agent_stream, get_model
 from app.tools import TOOLS
 
 load_dotenv()
@@ -71,6 +72,15 @@ def agent_run(req: AgentReq, db: Session = Depends(get_db)):
             for i, s in enumerate(result.steps)
         ],
     }
+
+@app.post("/agent/run/stream", tags=["agent"])
+async def agent_run_stream(req: AgentReq):
+    async def event_gen():
+        async for payload in run_agent_stream(req.query, max_steps=req.max_steps):
+            yield f"data: {payload}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 # ── Observability ─────────────────────────────────────────
 
