@@ -46,6 +46,27 @@ def test_tools_registered():
     assert "search_documents" in TOOLS
     assert "lookup_entity" in TOOLS
     assert "summarise" in TOOLS
+    assert "drift_monitor" in TOOLS
+
+
+def test_drift_monitor_unavailable():
+    result = call_tool("drift_monitor", {"metric": "all"})
+    assert "unavailable" in result.lower() or "drift" in result.lower()
+
+
+def test_drift_monitor_summary_only():
+    result = call_tool("drift_monitor", {"metric": "summary"})
+    assert isinstance(result, str) and len(result) > 0
+
+
+def test_drift_monitor_scheduler_only():
+    result = call_tool("drift_monitor", {"metric": "scheduler"})
+    assert isinstance(result, str) and len(result) > 0
+
+
+def test_drift_monitor_unknown_metric():
+    result = call_tool("drift_monitor", {"metric": "bogus"})
+    assert "Unknown metric" in result or "unavailable" in result.lower()
 
 # ── API tests ─────────────────────────────────────────────
 

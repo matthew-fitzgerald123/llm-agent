@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 P2_API_URL = os.getenv("P2_API_URL", "http://localhost:8080")
+P3_API_URL = os.getenv("P3_API_URL", "http://localhost:8081")
 P4_API_URL = os.getenv("P4_API_URL", "http://localhost:8082")
 
 # ── Tool registry ─────────────────────────────────────────
@@ -129,6 +130,50 @@ def summarise(text: str, max_sentences: int = 3) -> str:
     step = max(1, len(sentences) // max_sentences)
     selected = sentences[::step][:max_sentences]
     return ". ".join(selected) + "."
+
+
+@tool(
+    name="drift_monitor",
+    description="Checks the drift monitoring system (P3) for model drift events and scheduler status. Use when you need to know if a model is drifting, how many drift events have occurred, when retraining last ran, or the health of the drift detection pipeline. Specify metric='summary' for drift event counts, 'scheduler' for scheduler state, or 'all' for both.",
+    params={"metric": "string — one of 'summary', 'scheduler', or 'all' (default 'all')"},
+)
+def drift_monitor(metric: str = "all") -> str:
+    parts = []
+    try:
+        if metric in ("summary", "all"):
+            r = httpx.get(f"{P3_API_URL}/drift/summary", timeout=10.0)
+            if r.status_code == 200:
+                d = r.json()
+                parts.append(
+                    f"Drift summary: {d.get('total_drift_events', 0)} total events, "
+                    f"model version={d.get('model_version', 'unknown')}, "
+                    f"last drift at={d.get('last_drift_at') or 'never'}, "
+                    f"feature drift counts={d.get('feature_drift_counts', {})}"
+                )
+            else:
+                parts.append(f"Drift summary unavailable (status {r.status_code})")
+
+        if metric in ("scheduler", "all"):
+            r = httpx.get(f"{P3_API_URL}/scheduler/status", timeout=10.0)
+            if r.status_code == 200:
+                s = r.json()
+                parts.append(
+                    f"Scheduler: running={s.get('running')}, "
+                    f"interval={s.get('interval_minutes')}min, "
+                    f"checks_run={s.get('checks_run')}, "
+                    f"auto_retrains={s.get('auto_retrains')}, "
+                    f"last_check={s.get('last_check') or 'never'}, "
+                    f"next_check={s.get('next_check') or 'pending'}"
+                )
+            else:
+                parts.append(f"Scheduler status unavailable (status {r.status_code})")
+
+        if not parts:
+            return "Unknown metric. Use 'summary', 'scheduler', or 'all'."
+        return "\n".join(parts)
+
+    except httpx.ConnectError:
+        return "Drift monitor unavailable — P3 drift monitor not running"
 
 
 def call_tool(name: str, inputs: dict) -> str:
