@@ -173,6 +173,57 @@ def run_agent(query: str, max_steps: int = None) -> RunResult:
     )
 
 
+def run_agent_with_memory(query: str, prior_turns: list[dict], max_steps: int = None) -> RunResult:
+    """Run the agent with prior conversation turns injected into context."""
+    if max_steps is None:
+        max_steps = int(os.getenv("MAX_STEPS", 6))
+
+    model, tokenizer = get_model()
+    run_id = str(uuid.uuid4())[:8]
+
+    system = SYSTEM_PROMPT.format(tools=tools_prompt())
+
+    if prior_turns:
+        lines = ["Previous conversation:"]
+        for t in prior_turns:
+            prefix = "User" if t["role"] == "user" else "Agent"
+            lines.append(f"{prefix}: {t['content']}")
+        context = "\n".join(lines) + "\n\n"
+    else:
+        context = ""
+
+    history = f"[INST] {system}\n\n{context}Question: {query} [/INST]"
+
+    steps = []
+    final_answer = ""
+    success = False
+
+    for step_num in range(max_steps):
+        response = generate(model, tokenizer, prompt=history, max_tokens=512, verbose=False)
+        step = parse_response(response)
+        steps.append(step)
+
+        if step.is_final:
+            final_answer = step.final_answer
+            success = True
+            break
+
+        if step.tool_name:
+            observation = call_tool(step.tool_name, step.tool_input)
+            step.observation = observation
+            history += f"\n{response}\nObservation: {observation}\n[INST] Continue. [/INST]"
+        else:
+            history += f"\n{response}\n[INST] Please use the format: Thought/Action/Action Input or Thought/Final Answer [/INST]"
+
+    if not success:
+        prompt = history + "\n[INST] You have reached the step limit. Give your best Final Answer now based on what you have found. [/INST]"
+        response = generate(model, tokenizer, prompt=prompt, max_tokens=256, verbose=False)
+        final_match = re.search(r"Final Answer:\s*(.+?)$", response, re.DOTALL)
+        final_answer = final_match.group(1).strip() if final_match else response.strip()
+
+    return RunResult(run_id=run_id, query=query, final_answer=final_answer, steps=steps, success=success)
+
+
 async def run_agent_stream(query: str, max_steps: int = None):
     """Async generator that yields JSON event strings for SSE."""
     if max_steps is None:

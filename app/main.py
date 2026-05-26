@@ -1,15 +1,16 @@
 from __future__ import annotations
+import uuid
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Any
+from typing import Any, Optional
 from dotenv import load_dotenv
 
 from app.database import get_db, engine
-from app.models import Base, AgentRun, ToolCall
-from app.agent import run_agent, run_agent_stream, get_model
+from app.models import Base, AgentRun, ToolCall, Conversation, ConversationTurn
+from app.agent import run_agent, run_agent_with_memory, run_agent_stream, get_model
 from app.tools import TOOLS
 
 load_dotenv()
@@ -72,6 +73,75 @@ def agent_run(req: AgentReq, db: Session = Depends(get_db)):
             for i, s in enumerate(result.steps)
         ],
     }
+
+class ChatReq(BaseModel):
+    query: str
+    session_id: Optional[str] = None
+    max_steps: int = 6
+
+@app.post("/agent/chat", tags=["agent"])
+def agent_chat(req: ChatReq, db: Session = Depends(get_db)):
+    session_id = req.session_id or str(uuid.uuid4())[:12]
+
+    conv = db.query(Conversation).filter_by(session_id=session_id).first()
+    if not conv:
+        conv = Conversation(session_id=session_id)
+        db.add(conv)
+        db.flush()
+
+    prior = (
+        db.query(ConversationTurn)
+        .filter_by(session_id=session_id)
+        .order_by(ConversationTurn.id)
+        .all()
+    )
+    turns = [{"role": t.role, "content": t.content} for t in prior]
+
+    result = run_agent_with_memory(req.query, turns, max_steps=req.max_steps)
+
+    run = AgentRun(
+        run_id=result.run_id,
+        query=result.query,
+        final_answer=result.final_answer,
+        steps_taken=len(result.steps),
+        success=result.success,
+    )
+    db.add(run)
+    db.add(ConversationTurn(session_id=session_id, role="user", content=req.query, run_id=result.run_id))
+    db.add(ConversationTurn(session_id=session_id, role="agent", content=result.final_answer, run_id=result.run_id))
+    db.commit()
+
+    return {
+        "session_id":   session_id,
+        "run_id":       result.run_id,
+        "query":        result.query,
+        "final_answer": result.final_answer,
+        "steps_taken":  len(result.steps),
+        "success":      result.success,
+        "turns_in_context": len(turns),
+    }
+
+
+@app.get("/agent/sessions/{session_id}/history", tags=["agent"])
+def session_history(session_id: str, db: Session = Depends(get_db)):
+    conv = db.query(Conversation).filter_by(session_id=session_id).first()
+    if not conv:
+        raise HTTPException(404, "Session not found")
+    turns = (
+        db.query(ConversationTurn)
+        .filter_by(session_id=session_id)
+        .order_by(ConversationTurn.id)
+        .all()
+    )
+    return {
+        "session_id": session_id,
+        "created_at": str(conv.created_at),
+        "turns": [
+            {"role": t.role, "content": t.content, "run_id": t.run_id, "created_at": str(t.created_at)}
+            for t in turns
+        ],
+    }
+
 
 @app.post("/agent/run/stream", tags=["agent"])
 async def agent_run_stream(req: AgentReq):

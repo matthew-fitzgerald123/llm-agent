@@ -134,6 +134,42 @@ def test_agent_stream_returns_sse():
         assert "final_answer" in event_types
 
 
+def test_agent_chat_new_session():
+    r = client.post("/agent/chat", json={"query": "What is 12 times 12?"})
+    assert r.status_code == 200
+    data = r.json()
+    assert "session_id" in data
+    assert "final_answer" in data
+    assert data["turns_in_context"] == 0
+
+
+def test_agent_chat_remembers_prior_turn():
+    r1 = client.post("/agent/chat", json={"query": "Calculate 100 + 200."})
+    assert r1.status_code == 200
+    session_id = r1.json()["session_id"]
+
+    r2 = client.post("/agent/chat", json={"query": "What did I ask you about?", "session_id": session_id})
+    assert r2.status_code == 200
+    assert r2.json()["turns_in_context"] == 2  # user + agent from turn 1
+
+
+def test_session_history_endpoint():
+    r = client.post("/agent/chat", json={"query": "Calculate 7 * 8."})
+    session_id = r.json()["session_id"]
+    r2 = client.get(f"/agent/sessions/{session_id}/history")
+    assert r2.status_code == 200
+    data = r2.json()
+    assert data["session_id"] == session_id
+    assert len(data["turns"]) == 2
+    assert data["turns"][0]["role"] == "user"
+    assert data["turns"][1]["role"] == "agent"
+
+
+def test_session_history_not_found():
+    r = client.get("/agent/sessions/nonexistent-session-xyz/history")
+    assert r.status_code == 404
+
+
 def test_agent_stream_final_answer_has_run_id():
     import json as _json
     with client.stream("POST", "/agent/run/stream", json={
