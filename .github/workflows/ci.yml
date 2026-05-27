@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test
+    runs-on: macos-14
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: llm_agent
+          POSTGRES_USER: llm_agent
+          POSTGRES_PASSWORD: ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://llm_agent:ci_password@localhost:5432/llm_agent
+      GEN_MODEL: mlx-community/Mistral-7B-Instruct-v0.3-4bit
+      P2_API_URL: http://localhost:19998
+      P3_API_URL: http://localhost:19999
+      P4_API_URL: http://localhost:19997
+      MAX_STEPS: "4"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  terraform-validate:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+
+      - name: Terraform init
+        run: terraform init -backend=false
+        working-directory: infra
+
+      - name: Terraform validate
+        run: terraform validate
+        working-directory: infra
