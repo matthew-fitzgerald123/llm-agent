@@ -72,7 +72,7 @@ Rules:
 - Always start with Thought:
 - Only call one tool per response
 - Action Input must be valid JSON
-- Never make up facts — use tools to get real information
+- Never make up facts; use tools to get real information
 - If a tool returns an error, try a different approach
 - Give Final Answer only when you have enough information
 """

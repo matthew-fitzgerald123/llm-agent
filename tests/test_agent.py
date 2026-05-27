@@ -9,7 +9,7 @@ from app.tools import call_tool, TOOLS
 
 client = TestClient(app)
 
-# ── Tool unit tests — no model needed ─────────────────────
+# Tool unit tests - no model needed
 
 def test_calculate_basic():
     result = call_tool("calculate", {"expression": "2 + 2"})

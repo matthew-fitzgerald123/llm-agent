@@ -28,8 +28,8 @@ def tool(name: str, description: str, params: dict):
 
 @tool(
     name="calculate",
-    description="Evaluates a safe arithmetic expression. Use for any math — sums, ratios, percentages, averages. Input must be a valid Python arithmetic expression using only numbers and operators (+, -, *, /, **, %).",
-    params={"expression": "string — arithmetic expression e.g. '(120 + 95) / 2'"},
+    description="Evaluates a safe arithmetic expression. Use for any math: sums, ratios, percentages, averages. Input must be a valid Python arithmetic expression using only numbers and operators (+, -, *, /, **, %).",
+    params={"expression": "string: arithmetic expression e.g. '(120 + 95) / 2'"},
 )
 def calculate(expression: str) -> str:
     allowed = set("0123456789+-*/.() %**")
@@ -67,7 +67,7 @@ def _safe_eval(expr: str):
 @tool(
     name="search_documents",
     description="Searches the document knowledge base for relevant information. Use when you need facts, definitions, or context about a topic. Returns the most relevant passages.",
-    params={"query": "string — natural language search query", "top_k": "integer — number of results, default 3"},
+    params={"query": "string: natural language search query", "top_k": "integer: number of results, default 3"},
 )
 def search_documents(query: str, top_k: int = 3) -> str:
     try:
@@ -87,15 +87,15 @@ def search_documents(query: str, top_k: int = 3) -> str:
             for i, c in enumerate(chunks)
         ])
     except httpx.ConnectError:
-        return "Search service unavailable — P4 RAG pipeline not running"
+        return "Search service unavailable: P4 RAG pipeline not running"
 
 
 @tool(
     name="lookup_entity",
     description="Looks up stored features for a known entity from the feature store. Use when you need structured data about a specific entity like a user, company, or asset.",
     params={
-        "entity_id": "string — the entity identifier",
-        "feature_set": "string — the feature set name e.g. 'credit_signals'",
+        "entity_id": "string: the entity identifier",
+        "feature_set": "string: the feature set name e.g. 'credit_signals'",
     },
 )
 def lookup_entity(entity_id: str, feature_set: str) -> str:
@@ -110,15 +110,15 @@ def lookup_entity(entity_id: str, feature_set: str) -> str:
             return f"Feature store unavailable (status {r.status_code})"
         return str(r.json())
     except httpx.ConnectError:
-        return "Feature store unavailable — P2 ML platform not running"
+        return "Feature store unavailable: P2 ML platform not running"
 
 
 @tool(
     name="summarise",
     description="Summarises a long piece of text into key points. Use when context is too long to reason over directly, or to compress tool outputs before forming a final answer.",
     params={
-        "text": "string — the text to summarise",
-        "max_sentences": "integer — target summary length in sentences, default 3",
+        "text": "string: the text to summarise",
+        "max_sentences": "integer: target summary length in sentences, default 3",
     },
 )
 def summarise(text: str, max_sentences: int = 3) -> str:
@@ -135,7 +135,7 @@ def summarise(text: str, max_sentences: int = 3) -> str:
 @tool(
     name="drift_monitor",
     description="Checks the drift monitoring system (P3) for model drift events and scheduler status. Use when you need to know if a model is drifting, how many drift events have occurred, when retraining last ran, or the health of the drift detection pipeline. Specify metric='summary' for drift event counts, 'scheduler' for scheduler state, or 'all' for both.",
-    params={"metric": "string — one of 'summary', 'scheduler', or 'all' (default 'all')"},
+    params={"metric": "string: one of 'summary', 'scheduler', or 'all' (default 'all')"},
 )
 def drift_monitor(metric: str = "all") -> str:
     parts = []
@@ -173,7 +173,7 @@ def drift_monitor(metric: str = "all") -> str:
         return "\n".join(parts)
 
     except httpx.ConnectError:
-        return "Drift monitor unavailable — P3 drift monitor not running"
+        return "Drift monitor unavailable: P3 drift monitor not running"
 
 
 def call_tool(name: str, inputs: dict) -> str:

@@ -1,5 +1,5 @@
 """
-LLM Agent demo — shows ReAct loop with tool use.
+LLM Agent demo: shows ReAct loop with tool use.
 Run: make serve then make demo
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ print("\n=== LLM Agent Demo ===\n")
 tools = get("/tools")
 print("1. Available tools:")
 for t in tools:
-    print(f"   {t['name']} — {t['description'][:60]}...")
+    print(f"   {t['name']}: {t['description'][:60]}...")
 
 # 2. Math reasoning query
 print("\n2. Math query...")
