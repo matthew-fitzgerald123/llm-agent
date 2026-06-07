@@ -122,6 +122,24 @@ def agent_chat(req: ChatReq, db: Session = Depends(get_db)):
     }
 
 
+@app.get("/agent/sessions", tags=["agent"])
+def list_sessions(limit: int = 20, db: Session = Depends(get_db)):
+    sessions = (
+        db.query(Conversation)
+        .order_by(Conversation.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "session_id": s.session_id,
+            "created_at": str(s.created_at),
+            "turns": db.query(ConversationTurn).filter_by(session_id=s.session_id).count(),
+        }
+        for s in sessions
+    ]
+
+
 @app.get("/agent/sessions/{session_id}/history", tags=["agent"])
 def session_history(session_id: str, db: Session = Depends(get_db)):
     conv = db.query(Conversation).filter_by(session_id=session_id).first()
