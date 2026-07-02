@@ -129,6 +129,12 @@ curl -s -X POST http://localhost:8083/agent/chat \
   | jq .final_answer
 ```
 
+### List available tools
+
+```bash
+curl -s http://localhost:8083/tools | jq
+```
+
 ### SSE streaming
 
 ```bash
