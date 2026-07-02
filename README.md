@@ -40,10 +40,8 @@ createdb llm_agent
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy env template and fill in values
-cp .env.example .env   # or set variables directly
+# Set environment variables (defaults shown), e.g. in a .env file
 
-# Environment variables (defaults shown)
 DATABASE_URL=postgresql://localhost/llm_agent
 GEN_MODEL=mlx-community/Mistral-7B-Instruct-v0.3-4bit
 P2_API_URL=http://localhost:8080
