@@ -6,10 +6,10 @@ This is the top-level orchestrator in a four-project ML stack:
 
 | Project | Service | Port |
 |---|---|---|
-| P2 ml-platform | Feature store + model registry | 8080 |
-| P3 ml-drift-monitor | Drift detection + scheduled retraining | 8081 |
-| P4 rag-pipeline | Hybrid BM25 + vector RAG with reranking | 8082 |
-| P5 llm-agent (this) | ReAct agent with memory and SSE streaming | 8083 |
+| ml-platform (P2) | Feature store + model registry | 8080 |
+| ml-drift-monitor (P3) | Drift detection + scheduled retraining | 8081 |
+| rag-pipeline (P4) | Hybrid BM25 + vector RAG with reranking | 8082 |
+| llm-agent (P5, this) | ReAct agent with memory and SSE streaming | 8083 |
 
 ## Stack
 
@@ -26,9 +26,9 @@ This is the top-level orchestrator in a four-project ML stack:
 | Tool | Description | Calls |
 |---|---|---|
 | `calculate` | Safe AST-based arithmetic evaluator | Local |
-| `search_documents` | Hybrid BM25 + dense search with cross-encoder reranking | P4 :8082 |
-| `lookup_entity` | Feature store lookup by entity ID | P2 :8080 |
-| `drift_monitor` | Drift event counts and scheduler health | P3 :8081 |
+| `search_documents` | Hybrid BM25 + dense search with cross-encoder reranking | rag-pipeline :8082 |
+| `lookup_entity` | Feature store lookup by entity ID | ml-platform :8080 |
+| `drift_monitor` | Drift event counts and scheduler health | ml-drift-monitor :8081 |
 | `summarise` | Extractive summarisation for long tool outputs | Local |
 
 ## Setup
@@ -44,9 +44,9 @@ pip install -r requirements.txt
 
 DATABASE_URL=postgresql://localhost/llm_agent
 GEN_MODEL=mlx-community/Mistral-7B-Instruct-v0.3-4bit
-P2_API_URL=http://localhost:8080
-P3_API_URL=http://localhost:8081
-P4_API_URL=http://localhost:8082
+P2_API_URL=http://localhost:8080   # ml-platform
+P3_API_URL=http://localhost:8081   # ml-drift-monitor
+P4_API_URL=http://localhost:8082   # rag-pipeline
 MAX_STEPS=6
 ```
 
@@ -67,16 +67,16 @@ make test
 
 ```bash
 # Terminal 1: Feature store + model registry
-cd ../project_02 && make serve       # :8080
+cd ../ml-platform && make serve       # :8080
 
 # Terminal 2: Drift monitor
-cd ../project_03/ml-drift-monitor && make serve   # :8081
+cd ../ml-drift-monitor && make serve   # :8081
 
 # Terminal 3: RAG pipeline
-cd ../project_04 && make serve       # :8082
+cd ../rag-pipeline && make serve       # :8082
 
 # Terminal 4: Agent (orchestrates the above)
-cd ../project_05 && make serve       # :8083
+cd ../llm-agent && make serve       # :8083
 ```
 
 ## API Endpoints
@@ -174,7 +174,7 @@ Each turn in `/agent/chat` is stored as a `ConversationTurn` row tied to a `sess
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the full system diagram showing how P2/P3/P4/P5 interconnect.
+See [docs/architecture.md](docs/architecture.md) for the full system diagram showing how ml-platform (P2), ml-drift-monitor (P3), rag-pipeline (P4), and llm-agent (P5) interconnect.
 
 ## Project Structure
 
@@ -199,7 +199,7 @@ tests/
 
 ## Deployment
 
-Terraform in `infra/` provisions ECS Fargate (4096 cpu / 16384 MB for the 4-bit quantized Mistral model) behind an ALB on port 80, with RDS Postgres in a private subnet. Set `p2_api_url`, `p3_api_url`, and `p4_api_url` variables to point at the ALB DNS names from the other three project deployments.
+Terraform in `infra/` provisions ECS Fargate (4096 cpu / 16384 MB for the 4-bit quantized Mistral model) behind an ALB on port 80, with RDS Postgres in a private subnet. Set `p2_api_url` (ml-platform), `p3_api_url` (ml-drift-monitor), and `p4_api_url` (rag-pipeline) variables to point at the ALB DNS names from the other three project deployments.
 
 ```bash
 cd infra
