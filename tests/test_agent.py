@@ -182,3 +182,35 @@ def test_agent_stream_final_answer_has_run_id():
         assert final is not None
         assert "run_id" in final
         assert "content" in final
+
+
+# Parser: imagined-trajectory handling
+
+def test_parse_response_action_wins_over_imagined_final_answer():
+    """When the model emits Action, a fabricated Observation, and a Final Answer
+    in one generation, only the Action (which came first) must be honored."""
+    from app.agent import parse_response
+    text = (
+        "Thought: I need the drift count.\n"
+        "Action: drift_monitor\n"
+        'Action Input: {"metric": "summary"}\n'
+        "Observation: 4 drift events\n"
+        "Final Answer: There have been 4 drift events."
+    )
+    step = parse_response(text)
+    assert step.is_final is False
+    assert step.tool_name == "drift_monitor"
+    assert step.tool_input == {"metric": "summary"}
+
+def test_parse_response_genuine_final_answer_still_works():
+    from app.agent import parse_response
+    text = "Thought: I have enough information.\nFinal Answer: The total is 8."
+    step = parse_response(text)
+    assert step.is_final is True
+    assert step.final_answer == "The total is 8."
+
+def test_truncate_at_observation():
+    from app.agent import truncate_at_observation
+    text = "Thought: x\nAction: calculate\nAction Input: {}\nObservation: fake\nmore"
+    assert "fake" not in truncate_at_observation(text)
+    assert "Action: calculate" in truncate_at_observation(text)

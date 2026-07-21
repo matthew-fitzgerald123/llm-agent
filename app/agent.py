@@ -79,15 +79,29 @@ Rules:
 
 # ── Parser ────────────────────────────────────────────────
 
+def truncate_at_observation(text: str) -> str:
+    """Cut a generation at the first model-imagined Observation.
+
+    The model sometimes emits an entire imagined trajectory in one generation:
+    Action, a fabricated Observation, then a Final Answer built on it. Only the
+    text before the first Observation reflects a decision the loop should act on;
+    everything after it must never be parsed or fed back into history."""
+    return re.split(r"\n\s*Observation:", text)[0]
+
+
 def parse_response(text: str) -> AgentStep:
+    text = truncate_at_observation(text)
     step = AgentStep()
 
     thought_match = re.search(r"Thought:\s*(.+?)(?=Action:|Final Answer:|$)", text, re.DOTALL)
     if thought_match:
         step.thought = thought_match.group(1).strip()
 
-    final_match = re.search(r"Final Answer:\s*(.+?)$", text, re.DOTALL)
-    if final_match:
+    # When both appear, honor whichever the model committed to first.
+    action_pos = text.find("Action:")
+    final_pos = text.find("Final Answer:")
+    if final_pos != -1 and (action_pos == -1 or final_pos < action_pos):
+        final_match = re.search(r"Final Answer:\s*(.+?)$", text, re.DOTALL)
         step.is_final = True
         step.final_answer = final_match.group(1).strip()
         return step
@@ -139,6 +153,7 @@ def run_agent(query: str, max_steps: int = None) -> RunResult:
             max_tokens=512,
             verbose=False,
         )
+        response = truncate_at_observation(response)
 
         step = parse_response(response)
         steps.append(step)
@@ -200,6 +215,7 @@ def run_agent_with_memory(query: str, prior_turns: list[dict], max_steps: int = 
 
     for step_num in range(max_steps):
         response = generate(model, tokenizer, prompt=history, max_tokens=512, verbose=False)
+        response = truncate_at_observation(response)
         step = parse_response(response)
         steps.append(step)
 
@@ -243,6 +259,7 @@ async def run_agent_stream(query: str, max_steps: int = None):
         response = await asyncio.to_thread(
             generate, model, tokenizer, prompt=history, max_tokens=512, verbose=False
         )
+        response = truncate_at_observation(response)
 
         step = parse_response(response)
         steps.append(step)
