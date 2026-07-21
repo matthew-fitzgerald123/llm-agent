@@ -74,8 +74,31 @@ Rules:
 - Action Input must be valid JSON
 - Never make up facts; use tools to get real information
 - If a tool returns an error, try a different approach
-- Give Final Answer only when you have enough information
+- As soon as an Observation answers the question, give Final Answer
+- Never call the same tool twice with the same input
 """
+
+# ── Loop control prompts ──────────────────────────────────
+
+CONTINUE_PROMPT = (
+    "[INST] The Observation above is the real tool result. Use its value exactly "
+    "as given; never recompute it or substitute your own number. If it answers "
+    "the question, reply now with:\n"
+    "Thought: [brief reasoning]\n"
+    "Final Answer: [your answer, using the exact Observation value]\n"
+    "Only call another tool if information is still genuinely missing. "
+    "Do not write an 'Observation:' line yourself. [/INST]"
+)
+
+FORMAT_REMINDER = (
+    "[INST] Please use the format: Thought/Action/Action Input or "
+    "Thought/Final Answer [/INST]"
+)
+
+FORCE_FINAL_PROMPT = (
+    "\n[INST] Stop calling tools. Using only the Observations above, give your "
+    "best answer now in the form:\nFinal Answer: [your answer] [/INST]"
+)
 
 # ── Parser ────────────────────────────────────────────────
 
@@ -121,6 +144,21 @@ def parse_response(text: str) -> AgentStep:
 
     return step
 
+
+def is_repeat_call(step: AgentStep, previous_steps: list[AgentStep]) -> bool:
+    """True if this step re-runs a tool call already made with identical input.
+
+    A 7B model that has already seen a good Observation will sometimes re-issue
+    the same Action instead of committing to a Final Answer, burning the step
+    budget for no new information. Re-running the call cannot teach it anything
+    it does not already have in context, so the loop stops and forces an answer."""
+    if not step.tool_name:
+        return False
+    return any(
+        p.tool_name == step.tool_name and p.tool_input == step.tool_input
+        for p in previous_steps
+    )
+
 # ── Agent runner ──────────────────────────────────────────
 
 @dataclass
@@ -164,14 +202,16 @@ def run_agent(query: str, max_steps: int = None) -> RunResult:
             break
 
         if step.tool_name:
+            if is_repeat_call(step, steps[:-1]):
+                break
             observation = call_tool(step.tool_name, step.tool_input)
             step.observation = observation
-            history += f"\n{response}\nObservation: {observation}\n[INST] Continue. [/INST]"
+            history += f"\n{response}\nObservation: {observation}\n{CONTINUE_PROMPT}"
         else:
-            history += f"\n{response}\n[INST] Please use the format: Thought/Action/Action Input or Thought/Final Answer [/INST]"
+            history += f"\n{response}\n{FORMAT_REMINDER}"
 
     if not success:
-        prompt = history + "\n[INST] You have reached the step limit. Give your best Final Answer now based on what you have found. [/INST]"
+        prompt = history + FORCE_FINAL_PROMPT
         response = generate(model, tokenizer, prompt=prompt, max_tokens=256, verbose=False)
         final_match = re.search(r"Final Answer:\s*(.+?)$", response, re.DOTALL)
         if final_match:
@@ -225,14 +265,16 @@ def run_agent_with_memory(query: str, prior_turns: list[dict], max_steps: int = 
             break
 
         if step.tool_name:
+            if is_repeat_call(step, steps[:-1]):
+                break
             observation = call_tool(step.tool_name, step.tool_input)
             step.observation = observation
-            history += f"\n{response}\nObservation: {observation}\n[INST] Continue. [/INST]"
+            history += f"\n{response}\nObservation: {observation}\n{CONTINUE_PROMPT}"
         else:
-            history += f"\n{response}\n[INST] Please use the format: Thought/Action/Action Input or Thought/Final Answer [/INST]"
+            history += f"\n{response}\n{FORMAT_REMINDER}"
 
     if not success:
-        prompt = history + "\n[INST] You have reached the step limit. Give your best Final Answer now based on what you have found. [/INST]"
+        prompt = history + FORCE_FINAL_PROMPT
         response = generate(model, tokenizer, prompt=prompt, max_tokens=256, verbose=False)
         final_match = re.search(r"Final Answer:\s*(.+?)$", response, re.DOTALL)
         final_answer = final_match.group(1).strip() if final_match else response.strip()
@@ -278,15 +320,17 @@ async def run_agent_stream(query: str, max_steps: int = None):
             return
 
         if step.tool_name:
+            if is_repeat_call(step, steps[:-1]):
+                break
             yield json.dumps({"event": "tool_call", "step": step_num, "tool": step.tool_name, "input": step.tool_input})
             observation = await asyncio.to_thread(call_tool, step.tool_name, step.tool_input)
             step.observation = observation
             yield json.dumps({"event": "observation", "step": step_num, "content": observation})
-            history += f"\n{response}\nObservation: {observation}\n[INST] Continue. [/INST]"
+            history += f"\n{response}\nObservation: {observation}\n{CONTINUE_PROMPT}"
         else:
-            history += f"\n{response}\n[INST] Please use the format: Thought/Action/Action Input or Thought/Final Answer [/INST]"
+            history += f"\n{response}\n{FORMAT_REMINDER}"
 
-    prompt = history + "\n[INST] You have reached the step limit. Give your best Final Answer now based on what you have found. [/INST]"
+    prompt = history + FORCE_FINAL_PROMPT
     response = await asyncio.to_thread(generate, model, tokenizer, prompt=prompt, max_tokens=256, verbose=False)
     final_match = re.search(r"Final Answer:\s*(.+?)$", response, re.DOTALL)
     final_answer = final_match.group(1).strip() if final_match else response.strip()

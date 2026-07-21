@@ -29,9 +29,13 @@ def tool(name: str, description: str, params: dict):
 @tool(
     name="calculate",
     description="Evaluates a safe arithmetic expression. Use for any math: sums, ratios, percentages, averages. Input must be a valid Python arithmetic expression using only numbers and operators (+, -, *, /, **, %).",
-    params={"expression": "string: arithmetic expression e.g. '(120 + 95) / 2'"},
+    params={"expression": "string: arithmetic expression, e.g. (120 + 95) / 2"},
 )
 def calculate(expression: str) -> str:
+    # The model sometimes wraps the value in its own quotes ("'2 + 2'") or a
+    # trailing equals sign; unwrap before validating so a formatting quirk does
+    # not surface as a tool error the agent then has to reason around.
+    expression = expression.strip().strip("'\"").strip().rstrip("=").strip()
     allowed = set("0123456789+-*/.() %**")
     if not all(c in allowed for c in expression.replace(" ", "")):
         return "Error: expression contains disallowed characters"

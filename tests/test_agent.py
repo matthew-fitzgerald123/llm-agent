@@ -19,6 +19,17 @@ def test_calculate_complex():
     result = call_tool("calculate", {"expression": "(100 + 200) / 3"})
     assert float(result) == pytest.approx(100.0, rel=1e-3)
 
+def test_calculate_strips_model_added_quotes():
+    """The model sometimes emits {"expression": "'100 + 250'"}; the quotes are its
+    formatting, not part of the expression, and must not fail validation."""
+    assert call_tool("calculate", {"expression": "'100 + 250'"}) == "350"
+    assert call_tool("calculate", {"expression": '"7 * 8"'}) == "56"
+
+
+def test_calculate_strips_trailing_equals():
+    assert call_tool("calculate", {"expression": "12 * 12 ="}) == "144"
+
+
 def test_calculate_rejects_unsafe():
     result = call_tool("calculate", {"expression": "__import__('os')"})
     assert "Error" in result
@@ -214,3 +225,62 @@ def test_truncate_at_observation():
     text = "Thought: x\nAction: calculate\nAction Input: {}\nObservation: fake\nmore"
     assert "fake" not in truncate_at_observation(text)
     assert "Action: calculate" in truncate_at_observation(text)
+
+
+# Loop control: termination after a good observation
+
+def test_is_repeat_call_detects_identical_call():
+    from app.agent import AgentStep, is_repeat_call
+    prior = AgentStep(tool_name="calculate", tool_input={"expression": "2+2"})
+    repeat = AgentStep(tool_name="calculate", tool_input={"expression": "2+2"})
+    assert is_repeat_call(repeat, [prior]) is True
+
+
+def test_is_repeat_call_allows_different_input():
+    from app.agent import AgentStep, is_repeat_call
+    prior = AgentStep(tool_name="calculate", tool_input={"expression": "2+2"})
+    fresh = AgentStep(tool_name="calculate", tool_input={"expression": "3+3"})
+    assert is_repeat_call(fresh, [prior]) is False
+
+
+def test_is_repeat_call_allows_different_tool():
+    from app.agent import AgentStep, is_repeat_call
+    prior = AgentStep(tool_name="calculate", tool_input={"expression": "2+2"})
+    other = AgentStep(tool_name="summarise", tool_input={"expression": "2+2"})
+    assert is_repeat_call(other, [prior]) is False
+
+
+def test_is_repeat_call_ignores_steps_without_a_tool():
+    from app.agent import AgentStep, is_repeat_call
+    thought_only = AgentStep(thought="just thinking")
+    assert is_repeat_call(thought_only, [thought_only]) is False
+
+
+def test_is_repeat_call_empty_history():
+    from app.agent import AgentStep, is_repeat_call
+    step = AgentStep(tool_name="calculate", tool_input={"expression": "2+2"})
+    assert is_repeat_call(step, []) is False
+
+
+def test_continue_prompt_directs_toward_final_answer():
+    """The post-observation nudge must tell the model it may answer now."""
+    from app.agent import CONTINUE_PROMPT
+    assert "Final Answer" in CONTINUE_PROMPT
+    assert "Observation" in CONTINUE_PROMPT
+
+
+def test_continue_prompt_demands_the_observed_value():
+    """Must tell the model to reuse the tool's exact number.
+
+    An earlier wording said 'never restate the Observation', which pushed the
+    model into inventing a different figure than the tool returned."""
+    from app.agent import CONTINUE_PROMPT
+    assert "exactly as given" in CONTINUE_PROMPT
+    assert "never recompute" in CONTINUE_PROMPT.lower()
+    assert "never restate" not in CONTINUE_PROMPT.lower()
+
+
+def test_force_final_prompt_stops_tool_use():
+    from app.agent import FORCE_FINAL_PROMPT
+    assert "Final Answer" in FORCE_FINAL_PROMPT
+    assert "Stop calling tools" in FORCE_FINAL_PROMPT
